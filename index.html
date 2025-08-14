@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trình xem PDF (Lazy Loading + Copy Text)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            background-color: #f1f1f1;
+            font-family: sans-serif;
+        }
+        #viewerContainer {
+            width: 100%;
+            height: 100vh;
+            overflow: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        /* --- CSS MỚI & QUAN TRỌNG --- */
+        .pageContainer {
+            margin: 20px auto;
+            border: 1px solid black;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            position: relative; /* Quan trọng: làm gốc cho lớp văn bản định vị tuyệt đối */
+        }
+        .textLayer {
+            position: absolute;
+            left: 0;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            color: transparent; /* Làm cho văn bản thật sự vô hình */
+            cursor: text; /* Biến con trỏ chuột thành dạng chọn văn bản */
+        }
+        .textLayer > span {
+            position: absolute;
+            white-space: pre;
+            transform-origin: 0% 0%;
+        }
+        /* --- KẾT THÚC CSS MỚI --- */
+
+        #loadingIndicator {
+            padding: 20px;
+            font-size: 1.2em;
+        }
+    </style>
+</head>
+<body>
+    <div style="padding: 10px; background: #555; text-align: center;">
+  <input type="file" id="pdf-upload" accept=".pdf" style="color: white;">
+</div>
+    <div id="viewerContainer">
+        <div id="loadingIndicator">Đang tải tệp PDF...</div>
+    </div>
+
+    // --- BẮT ĐẦU PHẦN MÃ JAVASCRIPT ĐÃ CẬP NHẬT ---
+
+const scale = 3.0;
+const viewerContainer = document.getElementById('viewerContainer');
+const loadingIndicator = document.getElementById('loadingIndicator');
+
+let pdfDoc = null;
+let pageNum = 1;
+let isLoading = false;
+
+// Cấu hình worker cho PDF.js
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+// --- CÁC HÀM TIỆN ÍCH GIỮ NGUYÊN ---
+
+// Hàm vẽ một trang cụ thể
+function renderPage(num) {
+    isLoading = true;
+
+    pdfDoc.getPage(num).then(function(page) {
+        const viewport = page.getViewport({ scale: scale });
+        const pageContainer = document.createElement('div');
+        pageContainer.className = 'pageContainer';
+        pageContainer.style.width = viewport.width + 'px';
+        pageContainer.style.height = viewport.height + 'px';
+
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        pageContainer.appendChild(canvas);
+        viewerContainer.appendChild(pageContainer);
+        
+        const renderContext = {
+            canvasContext: context,
+            viewport: viewport
+        };
+        const renderTask = page.render(renderContext);
+
+        // Sau khi vẽ xong canvas, tiếp tục vẽ lớp văn bản (text layer)
+        renderTask.promise.then(function() {
+            return page.getTextContent();
+        }).then(function(textContent) {
+            const textLayerDiv = document.createElement('div');
+            textLayerDiv.className = 'textLayer';
+            pageContainer.appendChild(textLayerDiv);
+
+            pdfjsLib.renderTextLayer({
+                textContent: textContent,
+                container: textLayerDiv,
+                viewport: viewport,
+                textDivs: []
+            });
+            
+            console.log('Vẽ xong trang ' + num);
+            isLoading = false;
+        });
+    });
+}
+
+// Hàm xử lý sự kiện cuộn chuột để tải trang tiếp theo
+function handleScroll() {
+    // Nếu đang tải hoặc đã hết trang thì không làm gì
+    if (isLoading || !pdfDoc || pageNum >= pdfDoc.numPages) {
+        return;
+    }
+    // Khi người dùng cuộn gần đến cuối, tải trang tiếp theo
+    if (viewerContainer.scrollTop + viewerContainer.clientHeight >= viewerContainer.scrollHeight - 500) {
+        pageNum++;
+        renderPage(pageNum);
+    }
+}
+
+// --- LOGIC MỚI ĐỂ TẢI FILE PDF ---
+
+// Hàm chính để bắt đầu quá trình tải và hiển thị một file PDF mới
+function loadNewPdf(url) {
+    // 1. Thiết lập lại trạng thái cho file mới
+    viewerContainer.innerHTML = ''; // Xóa các trang PDF cũ
+    viewerContainer.appendChild(loadingIndicator); // Thêm lại chỉ báo tải
+    loadingIndicator.style.display = 'block';
+    loadingIndicator.textContent = 'Đang tải tệp PDF...';
+    pageNum = 1;
+    pdfDoc = null;
+    // Gỡ bỏ sự kiện cuộn cũ trước khi thêm cái mới
+    viewerContainer.removeEventListener('scroll', handleScroll);
+
+    // 2. Bắt đầu tải file PDF mới
+    const loadingTask = pdfjsLib.getDocument(url);
+    loadingTask.promise.then(function(pdfDoc_) {
+        pdfDoc = pdfDoc_;
+        loadingIndicator.style.display = 'none'; // Ẩn chỉ báo tải
+        console.log('PDF đã tải xong. Tổng số trang:', pdfDoc.numPages);
+        
+        // 3. Vẽ trang đầu tiên và thêm lại sự kiện cuộn
+        renderPage(pageNum);
+        viewerContainer.addEventListener('scroll', handleScroll);
+        
+    }, function (reason) {
+        // Xử lý lỗi nếu không tải được file
+        console.error(reason);
+        loadingIndicator.textContent = 'Lỗi khi tải tệp PDF.';
+    });
+}
+
+// Lắng nghe sự kiện khi người dùng chọn một file từ nút input
+document.getElementById('pdf-upload').addEventListener('change', function(event) {
+    const file = event.target.files[0];
+    if (file && file.type === 'application/pdf') {
+        // Tạo một URL tạm thời cho file được chọn
+        const fileURL = URL.createObjectURL(file);
+        // Gọi hàm để tải và hiển thị file PDF này
+        loadNewPdf(fileURL);
+    }
+});
+
+// --- KẾT THÚC PHẦN MÃ JAVASCRIPT ĐÃ CẬP NHẬT ---
+</body>
+</html>
