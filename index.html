@@ -20,7 +20,6 @@
             align-items: center;
         }
         
-        /* --- CSS MỚI & QUAN TRỌNG --- */
         .pageContainer {
             margin: 20px auto;
             border: 1px solid black;
@@ -41,7 +40,11 @@
             white-space: pre;
             transform-origin: 0% 0%;
         }
-        /* --- KẾT THÚC CSS MỚI --- */
+        
+        /* CSS để hiển thị vùng chọn văn bản */
+        .textLayer::selection {
+            background: rgba(0, 0, 255, 0.3); /* Màu xanh mờ khi bôi đen */
+        }
 
         #loadingIndicator {
             padding: 20px;
@@ -58,8 +61,6 @@
     </div>
 
     <script>
-    // --- BẮT ĐẦU PHẦN MÃ JAVASCRIPT ĐÃ CẬP NHẬT ---
-
     const scale = 3.0;
     const viewerContainer = document.getElementById('viewerContainer');
     const loadingIndicator = document.getElementById('loadingIndicator');
@@ -70,8 +71,6 @@
 
     // Cấu hình worker cho PDF.js
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-
-    // --- CÁC HÀM TIỆN ÍCH GIỮ NGUYÊN ---
 
     // Hàm vẽ một trang cụ thể
     function renderPage(num) {
@@ -98,7 +97,7 @@
             };
             const renderTask = page.render(renderContext);
 
-            // Sau khi vẽ xong canvas, tiếp tục vẽ lớp văn bản (text layer)
+            // Vẽ lớp văn bản (text layer)
             renderTask.promise.then(function() {
                 return page.getTextContent();
             }).then(function(textContent) {
@@ -121,44 +120,35 @@
 
     // Hàm xử lý sự kiện cuộn chuột để tải trang tiếp theo
     function handleScroll() {
-        // Nếu đang tải hoặc đã hết trang thì không làm gì
         if (isLoading || !pdfDoc || pageNum >= pdfDoc.numPages) {
             return;
         }
-        // Khi người dùng cuộn gần đến cuối, tải trang tiếp theo
         if (viewerContainer.scrollTop + viewerContainer.clientHeight >= viewerContainer.scrollHeight - 500) {
             pageNum++;
             renderPage(pageNum);
         }
     }
 
-    // --- LOGIC MỚI ĐỂ TẢI FILE PDF ---
-
     // Hàm chính để bắt đầu quá trình tải và hiển thị một file PDF mới
     function loadNewPdf(url) {
-        // 1. Thiết lập lại trạng thái cho file mới
-        viewerContainer.innerHTML = ''; // Xóa các trang PDF cũ
-        viewerContainer.appendChild(loadingIndicator); // Thêm lại chỉ báo tải
+        viewerContainer.innerHTML = ''; 
+        viewerContainer.appendChild(loadingIndicator); 
         loadingIndicator.style.display = 'block';
         loadingIndicator.textContent = 'Đang tải tệp PDF...';
         pageNum = 1;
         pdfDoc = null;
-        // Gỡ bỏ sự kiện cuộn cũ trước khi thêm cái mới
         viewerContainer.removeEventListener('scroll', handleScroll);
 
-        // 2. Bắt đầu tải file PDF mới
         const loadingTask = pdfjsLib.getDocument(url);
         loadingTask.promise.then(function(pdfDoc_) {
             pdfDoc = pdfDoc_;
-            loadingIndicator.style.display = 'none'; // Ẩn chỉ báo tải
+            loadingIndicator.style.display = 'none'; 
             console.log('PDF đã tải xong. Tổng số trang:', pdfDoc.numPages);
             
-            // 3. Vẽ trang đầu tiên và thêm lại sự kiện cuộn
             renderPage(pageNum);
             viewerContainer.addEventListener('scroll', handleScroll);
             
         }, function (reason) {
-            // Xử lý lỗi nếu không tải được file
             console.error(reason);
             loadingIndicator.textContent = 'Lỗi khi tải tệp PDF.';
         });
@@ -168,14 +158,10 @@
     document.getElementById('pdf-upload').addEventListener('change', function(event) {
         const file = event.target.files[0];
         if (file && file.type === 'application/pdf') {
-            // Tạo một URL tạm thời cho file được chọn
             const fileURL = URL.createObjectURL(file);
-            // Gọi hàm để tải và hiển thị file PDF này
             loadNewPdf(fileURL);
         }
     });
-
-    // --- KẾT THÚC PHẦN MÃ JAVASCRIPT ĐÃ CẬP NHẬT ---
     </script>
 </body>
 </html>
