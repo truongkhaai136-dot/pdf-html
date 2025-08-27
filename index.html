@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trình xem PDF (Lazy Loading + Copy Text)</title>
+    <title>Trình xem PDF (Zoom + Lazy Loading)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <style>
         body {
@@ -11,9 +11,35 @@
             background-color: #f1f1f1;
             font-family: sans-serif;
         }
+        /* -- CSS MỚI CHO THANH CÔNG CỤ -- */
+        #toolbar {
+            padding: 8px;
+            background: #555;
+            text-align: center;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+        }
+        #toolbar input {
+            color: white;
+        }
+        #toolbar button {
+            font-weight: bold;
+            font-size: 16px;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+        }
+        #toolbar span {
+            color: white;
+            font-size: 14px;
+            min-width: 50px;
+        }
+
         #viewerContainer {
             width: 100%;
-            height: 100vh;
+            height: calc(100vh - 46px); /* Chiều cao trừ đi thanh công cụ */
             overflow: auto;
             display: flex;
             flex-direction: column;
@@ -24,7 +50,7 @@
             margin: 20px auto;
             border: 1px solid black;
             box-shadow: 0 0 10px rgba(0,0,0,0.5);
-            position: relative; /* Quan trọng: làm gốc cho lớp văn bản định vị tuyệt đối */
+            position: relative;
         }
         .textLayer {
             position: absolute;
@@ -32,8 +58,8 @@
             top: 0;
             right: 0;
             bottom: 0;
-            color: transparent; /* Làm cho văn bản thật sự vô hình */
-            cursor: text; /* Biến con trỏ chuột thành dạng chọn văn bản */
+            color: transparent;
+            cursor: text;
         }
         .textLayer > span {
             position: absolute;
@@ -41,9 +67,8 @@
             transform-origin: 0% 0%;
         }
         
-        /* CSS để hiển thị vùng chọn văn bản */
         .textLayer::selection {
-            background: rgba(255, 255, 0, 0.4); /* Màu xanh mờ khi bôi đen */
+            background: rgba(255, 255, 0, 0.4);
         }
 
         #loadingIndicator {
@@ -53,26 +78,49 @@
     </style>
 </head>
 <body>
-    <div style="padding: 10px; background: #555; text-align: center;">
-      <input type="file" id="pdf-upload" accept=".pdf" style="color: white;">
+    <div id="toolbar">
+      <input type="file" id="pdf-upload" accept=".pdf">
+      <button id="zoom-out-btn">-</button>
+      <span id="scale-info">150%</span>
+      <button id="zoom-in-btn">+</button>
+      <button id="fit-width-btn" style="width: auto; padding: 0 8px;">Vừa chiều rộng</button>
     </div>
+
     <div id="viewerContainer">
         <div id="loadingIndicator">Vui lòng chọn một tệp PDF để bắt đầu...</div>
     </div>
 
     <script>
-    const scale = 3.0;
+    // -- JAVASCRIPT ĐÃ CẬP NHẬT --
+
+    // Thay đổi scale thành biến 'let' và đặt giá trị mặc định hợp lý hơn
+    let scale = 1.5; 
     const viewerContainer = document.getElementById('viewerContainer');
     const loadingIndicator = document.getElementById('loadingIndicator');
+    const scaleInfo = document.getElementById('scale-info');
 
     let pdfDoc = null;
     let pageNum = 1;
     let isLoading = false;
 
-    // Cấu hình worker cho PDF.js
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
-    // Hàm vẽ một trang cụ thể
+    // Hàm vẽ lại tất cả các trang đã hiển thị với tỷ lệ mới
+    function updateAndRerender() {
+        if (!pdfDoc) return;
+        
+        // Lưu lại số trang đã tải
+        const lastPageNum = pageNum;
+        viewerContainer.innerHTML = ''; // Xóa các trang cũ
+        pageNum = 0; // Reset lại số trang
+        
+        // Vẽ lại các trang đã có với tỷ lệ mới
+        for (let i = 1; i <= lastPageNum; i++) {
+            renderPage(i);
+        }
+        scaleInfo.textContent = `${Math.round(scale * 100)}%`;
+    }
+
     function renderPage(num) {
         isLoading = true;
 
@@ -95,41 +143,33 @@
                 canvasContext: context,
                 viewport: viewport
             };
-            const renderTask = page.render(renderContext);
-
-            // Vẽ lớp văn bản (text layer)
-            renderTask.promise.then(function() {
-                return page.getTextContent();
-            }).then(function(textContent) {
+            page.render(renderContext).promise.then(() => page.getTextContent()).then(textContent => {
                 const textLayerDiv = document.createElement('div');
                 textLayerDiv.className = 'textLayer';
                 pageContainer.appendChild(textLayerDiv);
-
                 pdfjsLib.renderTextLayer({
-                    textContent: textContent,
+                    textContent,
                     container: textLayerDiv,
-                    viewport: viewport,
+                    viewport,
                     textDivs: []
                 });
-                
-                console.log('Vẽ xong trang ' + num);
-                isLoading = false;
             });
+            
+            // Cập nhật lại số trang đã vẽ xong
+            if (num > pageNum) {
+                pageNum = num;
+            }
+            isLoading = false;
         });
     }
 
-    // Hàm xử lý sự kiện cuộn chuột để tải trang tiếp theo
     function handleScroll() {
-        if (isLoading || !pdfDoc || pageNum >= pdfDoc.numPages) {
-            return;
-        }
+        if (isLoading || !pdfDoc || pageNum >= pdfDoc.numPages) return;
         if (viewerContainer.scrollTop + viewerContainer.clientHeight >= viewerContainer.scrollHeight - 500) {
-            pageNum++;
-            renderPage(pageNum);
+            renderPage(pageNum + 1);
         }
     }
 
-    // Hàm chính để bắt đầu quá trình tải và hiển thị một file PDF mới
     function loadNewPdf(url) {
         viewerContainer.innerHTML = ''; 
         viewerContainer.appendChild(loadingIndicator); 
@@ -137,24 +177,20 @@
         loadingIndicator.textContent = 'Đang tải tệp PDF...';
         pageNum = 1;
         pdfDoc = null;
-        viewerContainer.removeEventListener('scroll', handleScroll);
 
         const loadingTask = pdfjsLib.getDocument(url);
         loadingTask.promise.then(function(pdfDoc_) {
             pdfDoc = pdfDoc_;
             loadingIndicator.style.display = 'none'; 
-            console.log('PDF đã tải xong. Tổng số trang:', pdfDoc.numPages);
-            
-            renderPage(pageNum);
             viewerContainer.addEventListener('scroll', handleScroll);
-            
+            renderPage(pageNum);
+            scaleInfo.textContent = `${Math.round(scale * 100)}%`;
         }, function (reason) {
             console.error(reason);
             loadingIndicator.textContent = 'Lỗi khi tải tệp PDF.';
         });
     }
 
-    // Lắng nghe sự kiện khi người dùng chọn một file từ nút input
     document.getElementById('pdf-upload').addEventListener('change', function(event) {
         const file = event.target.files[0];
         if (file && file.type === 'application/pdf') {
@@ -162,6 +198,30 @@
             loadNewPdf(fileURL);
         }
     });
+
+    // -- GÁN SỰ KIỆN CHO CÁC NÚT ZOOM MỚI --
+    document.getElementById('zoom-in-btn').addEventListener('click', () => {
+        scale += 0.25;
+        updateAndRerender();
+    });
+
+    document.getElementById('zoom-out-btn').addEventListener('click', () => {
+        if (scale <= 0.25) return;
+        scale -= 0.25;
+        updateAndRerender();
+    });
+
+    document.getElementById('fit-width-btn').addEventListener('click', () => {
+        if (!pdfDoc) return;
+        pdfDoc.getPage(1).then(page => {
+            const unscaledViewport = page.getViewport({ scale: 1 });
+            // Trừ đi một chút lề để không bị sát mép
+            const containerWidth = viewerContainer.clientWidth - 45;
+            scale = containerWidth / unscaledViewport.width;
+            updateAndRerender();
+        });
+    });
+
     </script>
 </body>
 </html>
